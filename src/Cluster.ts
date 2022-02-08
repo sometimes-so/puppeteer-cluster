@@ -535,6 +535,81 @@ export default class Cluster<JobData = any, ReturnData = any> extends EventEmitt
         display.resetCursor();
     }
 
+    get stats() {
+        const now = Date.now();
+        const timeDiff = now - this.startTime;
+
+        const doneTargets = this.allTargetCount - this.jobQueue.size() - this.workersBusy.length;
+        const donePercentage = this.allTargetCount === 0
+            ? 1 : (doneTargets / this.allTargetCount);
+        const donePercStr = (100 * donePercentage).toFixed(2);
+
+        const errorPerc = doneTargets === 0 ?
+            '0.00' : (100 * this.errorCount / doneTargets).toFixed(2);
+
+        const timeRunning = util.formatDuration(timeDiff);
+
+        let timeRemainingMillis = -1;
+        if (donePercentage !== 0) {
+            timeRemainingMillis = ((timeDiff) / donePercentage) - timeDiff;
+        }
+        const timeRemining = util.formatDuration(timeRemainingMillis);
+
+        const cpuUsage = this.systemMonitor.getCpuUsage().toFixed(1);
+        const memoryUsage = this.systemMonitor.getMemoryUsage().toFixed(1);
+
+        const pagesPerSecond = doneTargets === 0 ?
+            '0' : (doneTargets * 1000 / timeDiff).toFixed(2);
+
+        const stats = {
+            startTime : this.startTime,
+            now,
+            timeRunning,
+            done : doneTargets,
+            targets: this.allTargetCount,
+            errorCount: this.errorCount,
+            errorPercent: errorPerc,
+            pagesPerSecond: pagesPerSecond,
+            system : {
+                cpuUsage,
+                memoryUsage
+            },
+            workersCount: this.workers.length + this.workersStarting,
+            workers : new Array<{ id: number, status: 'Work' | 'Idle' | 'Starting', url?: string}>()
+        }
+
+        this.workers.forEach((worker, i) => {
+            const isIdle = this.workersAvail.indexOf(worker) !== -1;
+            let workOrIdle : 'Work' | 'Idle' | 'Starting';
+            let workerUrl = '';
+            if (isIdle) {
+                workOrIdle = 'Idle';
+            } else {
+                workOrIdle = 'Work';
+                if (worker.activeTarget) {
+                    workerUrl = worker.activeTarget.getUrl() || 'UNKNOWN TARGET';
+                } else {
+                    workerUrl = 'NO TARGET (should not be happening)';
+                }
+            }
+
+            stats.workers.push({
+                id: i,
+                status: workOrIdle,
+                url: workerUrl
+            });                
+        });
+
+        for (let i = 0; i < this.workersStarting; i += 1) {
+            stats.workers.push({
+                id: this.workers.length + i,
+                status: 'Starting',
+            });
+        }
+    
+        return stats;
+    }
+
     get jobQueueSize() {
         return this.jobQueue.size();
     }
